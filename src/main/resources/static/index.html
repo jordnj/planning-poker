@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planning Poker</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- ===================== HOME ===================== -->
+<main id="view-home" class="home">
+    <header class="home-header">
+        <h1>🃏 Planning Poker</h1>
+        <p class="subtitle">Real-time story estimation for agile teams</p>
+    </header>
+
+    <div class="home-grid">
+        <section class="card-panel" aria-labelledby="create-heading">
+            <h2 id="create-heading">Create a session</h2>
+            <form id="create-form">
+                <label for="create-session-name">Session name</label>
+                <input id="create-session-name" name="sessionName" required maxlength="100"
+                       placeholder="Sprint 42 estimation" autocomplete="off">
+
+                <label for="create-your-name">Your name</label>
+                <input id="create-your-name" name="yourName" required maxlength="50"
+                       placeholder="Alex" autocomplete="name">
+
+                <label for="create-deck">Deck</label>
+                <select id="create-deck" name="deck"></select>
+
+                <div id="custom-deck-row" hidden>
+                    <label for="custom-deck-values">Custom deck values (comma-separated)</label>
+                    <input id="custom-deck-values" placeholder="1, 2, 3, 5, 8, ?, ☕" maxlength="500">
+                </div>
+
+                <fieldset class="settings">
+                    <legend>Settings</legend>
+                    <label class="checkbox"><input type="checkbox" id="opt-auto-reveal">
+                        Auto-reveal when everyone voted</label>
+                    <label class="checkbox"><input type="checkbox" id="opt-allow-observers" checked>
+                        Allow observers</label>
+                    <label class="checkbox"><input type="checkbox" id="opt-allow-vote-change" checked>
+                        Allow changing votes before reveal</label>
+                </fieldset>
+
+                <button type="submit" class="btn primary">Create session</button>
+            </form>
+        </section>
+
+        <section class="card-panel" aria-labelledby="join-heading">
+            <h2 id="join-heading">Join a session</h2>
+            <form id="join-form">
+                <label for="join-code">Session code</label>
+                <input id="join-code" name="code" required maxlength="16" placeholder="AB2CD3EF"
+                       autocomplete="off" style="text-transform:uppercase">
+
+                <label for="join-your-name">Your name</label>
+                <input id="join-your-name" name="yourName" required maxlength="50"
+                       placeholder="Sam" autocomplete="name">
+
+                <label class="checkbox"><input type="checkbox" id="join-as-observer">
+                    Join as observer (watch only)</label>
+
+                <button type="submit" class="btn primary">Join session</button>
+            </form>
+        </section>
+    </div>
+</main>
+
+<!-- ===================== SESSION ===================== -->
+<main id="view-session" hidden>
+    <header class="session-header">
+        <div class="session-title">
+            <h1 id="session-name"></h1>
+            <span id="session-code-badge" class="code-badge" title="Session code"></span>
+            <button id="btn-copy-link" class="btn small" type="button">Copy invite link</button>
+        </div>
+        <div class="session-header-right">
+            <span id="conn-indicator" class="conn-dot disconnected" title="Connection status"
+                  role="img" aria-label="Connection status"></span>
+            <span id="my-identity"></span>
+            <button id="btn-leave" class="btn small" type="button">Leave</button>
+            <button id="btn-close-session" class="btn small danger" type="button" hidden>Close session</button>
+        </div>
+    </header>
+
+    <div class="session-grid">
+        <!-- participants -->
+        <section class="panel" aria-labelledby="participants-heading">
+            <h2 id="participants-heading">Participants</h2>
+            <ul id="participant-list" class="participant-list"></ul>
+        </section>
+
+        <!-- voting area -->
+        <section class="panel voting-area" aria-labelledby="voting-heading">
+            <h2 id="voting-heading" class="sr-only">Voting</h2>
+            <div id="active-story-box">
+                <p id="no-active-story" class="muted">No story selected yet.
+                    The facilitator picks a story from the queue to start voting.</p>
+                <div id="active-story" hidden>
+                    <span class="label">Now estimating</span>
+                    <h3 id="active-story-title"></h3>
+                    <p id="active-story-desc" class="muted"></p>
+                    <a id="active-story-link" target="_blank" rel="noopener noreferrer" hidden>Reference ↗</a>
+                </div>
+            </div>
+
+            <div id="card-grid" class="card-grid" role="group" aria-label="Estimation cards"></div>
+
+            <div id="facilitator-round-controls" class="round-controls" hidden>
+                <button id="btn-reveal" class="btn primary" type="button">Reveal votes</button>
+                <button id="btn-reset" class="btn" type="button">Reset round</button>
+            </div>
+
+            <div id="results" class="results" hidden>
+                <h3>Results</h3>
+                <ul id="vote-list" class="vote-list"></ul>
+                <div id="consensus-badge" class="consensus" hidden>🎉 Consensus!</div>
+                <div id="stats" class="stats"></div>
+                <div id="histogram" class="histogram" aria-label="Vote distribution"></div>
+                <form id="estimate-form" class="estimate-form" hidden>
+                    <label for="estimate-input">Final estimate</label>
+                    <input id="estimate-input" maxlength="50" required>
+                    <button type="submit" class="btn primary">Record &amp; next</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- story queue -->
+        <section class="panel" aria-labelledby="stories-heading">
+            <h2 id="stories-heading">Stories</h2>
+            <ul id="story-list" class="story-list"></ul>
+
+            <div id="story-admin" hidden>
+                <form id="add-story-form">
+                    <label for="story-title" class="sr-only">Story title</label>
+                    <input id="story-title" placeholder="Story title" maxlength="255" required>
+                    <input id="story-url" placeholder="Reference URL (optional)" maxlength="500">
+                    <button type="submit" class="btn small">Add story</button>
+                    <button type="button" id="btn-toggle-import" class="btn small">Paste list…</button>
+                </form>
+                <form id="import-form" hidden>
+                    <label for="import-text" class="sr-only">Stories, one per line</label>
+                    <textarea id="import-text" rows="5" placeholder="One story title per line"></textarea>
+                    <button type="submit" class="btn small">Import</button>
+                </form>
+                <div class="export-row">
+                    <button id="btn-export-csv" class="btn small" type="button">Export CSV</button>
+                    <button id="btn-export-json" class="btn small" type="button">Export JSON</button>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script src="/webjars/sockjs-client/1.5.1/sockjs.min.js"></script>
+<script src="/webjars/stomp-websocket/2.3.4/stomp.min.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
