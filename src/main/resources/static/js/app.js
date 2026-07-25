@@ -374,32 +374,37 @@
                     try {
                         await api('/api/sessions/' + auth.code + '/participants/' + p.id, {method: 'DELETE'});
                     } catch (e) { toast(e.message); }
-                }));
+                }, 'Remove ' + p.displayName + ' from the session'));
                 actions.appendChild(actionButton(p.role === 'OBSERVER' ? '→Voter' : '→Obs', async () => {
                     const newRole = p.role === 'OBSERVER' ? 'VOTER' : 'OBSERVER';
                     try {
                         await api('/api/sessions/' + auth.code + '/participants/' + p.id + '/role',
                             {method: 'PUT', body: JSON.stringify({role: newRole})});
                     } catch (e) { toast(e.message); }
-                }));
+                }, 'Make ' + p.displayName + (p.role === 'OBSERVER' ? ' a voter' : ' an observer')));
                 actions.appendChild(actionButton('★', async () => {
                     if (!confirm('Make ' + p.displayName + ' the facilitator?')) return;
                     try {
                         await api('/api/sessions/' + auth.code + '/participants/' + p.id + '/role',
                             {method: 'PUT', body: JSON.stringify({role: 'FACILITATOR'})});
                     } catch (e) { toast(e.message); }
-                }));
+                }, 'Make ' + p.displayName + ' the facilitator'));
                 li.appendChild(actions);
             }
             ul.appendChild(li);
         });
     }
 
-    function actionButton(label, onClick) {
+    function actionButton(label, onClick, accessibleName) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn small';
         btn.textContent = label;
+        if (accessibleName) {
+            // icon-only buttons need a text alternative for screen readers
+            btn.title = accessibleName;
+            btn.setAttribute('aria-label', accessibleName);
+        }
         btn.addEventListener('click', onClick);
         return btn;
     }
@@ -410,7 +415,11 @@
         $('active-story').hidden = !story;
         if (story) {
             $('active-story-title').textContent = story.title;
-            $('active-story-desc').textContent = story.description || '';
+            // every participant — voters and observers alike — sees the description
+            // of the story being estimated, with author line breaks preserved
+            const desc = $('active-story-desc');
+            desc.textContent = story.description || '';
+            desc.hidden = !story.description;
             const link = $('active-story-link');
             if (story.referenceUrl) {
                 link.href = story.referenceUrl;
@@ -572,6 +581,15 @@
             title.textContent = s.title;
             title.title = s.title;
             main.appendChild(title);
+            if (s.description) {
+                // clamped preview so everyone can see a story has details
+                // before it becomes the active story
+                const preview = document.createElement('span');
+                preview.className = 'story-desc-preview';
+                preview.textContent = s.description;
+                preview.title = s.description;
+                main.appendChild(preview);
+            }
             li.appendChild(main);
 
             const badge = document.createElement('span');
@@ -588,20 +606,22 @@
                         selectedCard = null;
                         stomp.send('/app/sessions/' + auth.code + '/story/select', {},
                             JSON.stringify({storyId: s.id}));
-                    }));
+                    }, 'Start voting on "' + s.title + '"'));
                 }
                 if (index > 0) {
-                    actions.appendChild(actionButton('↑', () => moveStory(s, index - 1)));
+                    actions.appendChild(actionButton('↑', () => moveStory(s, index - 1), 'Move up'));
                 }
                 if (index < snapshot.stories.length - 1) {
-                    actions.appendChild(actionButton('↓', () => moveStory(s, index + 1)));
+                    actions.appendChild(actionButton('↓', () => moveStory(s, index + 1), 'Move down'));
                 }
+                actions.appendChild(actionButton('✎', () => startEdit(s),
+                        'Edit title, description and reference'));
                 actions.appendChild(actionButton('✕', async () => {
                     if (!confirm('Delete "' + s.title + '"?')) return;
                     try {
                         await api('/api/sessions/' + auth.code + '/stories/' + s.id, {method: 'DELETE'});
                     } catch (e) { toast(e.message); }
-                }));
+                }, 'Delete story'));
                 li.appendChild(actions);
             }
             ul.appendChild(li);
@@ -617,17 +637,48 @@
         }
     }
 
+    // the story form doubles as an editor, so a description can be added to a
+    // story that already exists; null while adding, story id while editing
+    let editingStoryId = null;
+
+    function startEdit(story) {
+        editingStoryId = story.id;
+        $('story-title').value = story.title;
+        $('story-description').value = story.description || '';
+        $('story-url').value = story.referenceUrl || '';
+        $('btn-save-story').textContent = 'Save story';
+        $('btn-cancel-edit').hidden = false;
+        $('story-title').focus();
+    }
+
+    function resetStoryForm() {
+        editingStoryId = null;
+        $('story-title').value = '';
+        $('story-description').value = '';
+        $('story-url').value = '';
+        $('btn-save-story').textContent = 'Add story';
+        $('btn-cancel-edit').hidden = true;
+    }
+
+    $('btn-cancel-edit').addEventListener('click', resetStoryForm);
+
     $('add-story-form').addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const body = {
             title: $('story-title').value.trim(),
-            referenceUrl: $('story-url').value.trim() || null
+            description: $('story-description').value.trim(),
+            referenceUrl: $('story-url').value.trim()
         };
+        const editing = editingStoryId;
         try {
-            await api('/api/sessions/' + auth.code + '/stories',
-                {method: 'POST', body: JSON.stringify(body)});
-            $('story-title').value = '';
-            $('story-url').value = '';
+            if (editing) {
+                await api('/api/sessions/' + auth.code + '/stories/' + editing,
+                    {method: 'PUT', body: JSON.stringify(body)});
+            } else {
+                await api('/api/sessions/' + auth.code + '/stories',
+                    {method: 'POST', body: JSON.stringify(body)});
+            }
+            resetStoryForm();
         } catch (e) {
             toast(e.message);
         }

@@ -214,6 +214,63 @@ class SessionFlowIntegrationTest {
     }
 
     @Test
+    void storyDescriptionIsVisibleToAllParticipantsWhileVoting() {
+        CreateSessionResponse created = createSession(false, true);
+        String code = created.session().code();
+        AuthPrincipal facilitator = principal(created.participant().id(), code);
+        JoinResponse voterJoin = sessionService.join(code, new JoinRequest("Ana", "VOTER"), null);
+        JoinResponse observerJoin = sessionService.join(code, new JoinRequest("Olly", "OBSERVER"), null);
+        AuthPrincipal ana = principal(voterJoin.participant().id(), code);
+        AuthPrincipal olly = principal(observerJoin.participant().id(), code);
+
+        String description = "As a user I want to log in.\n\nAcceptance criteria:\n- email + password";
+        StoryDto story = storyService.add(code,
+                new StoryRequest("Login page", description, "https://tracker.example/ISSUE-1"), facilitator);
+        assertThat(story.description()).isEqualTo(description);
+
+        votingService.selectStory(code, story.id(), facilitator);
+
+        // the active story carries the description for voters and observers alike,
+        // while the round is still open and votes are hidden
+        for (AuthPrincipal member : List.of(facilitator, ana, olly)) {
+            SessionSnapshot snapshot = sessionService.getSnapshot(code, member);
+            assertThat(snapshot.activeStory().description()).isEqualTo(description);
+            assertThat(snapshot.activeStory().referenceUrl()).isEqualTo("https://tracker.example/ISSUE-1");
+            assertThat(snapshot.activeRound().state()).isEqualTo(RoundState.OPEN);
+            assertThat(snapshot.activeRound().votes()).isNull();
+            assertThat(snapshot.stories().get(0).description()).isEqualTo(description);
+        }
+
+        // the facilitator can add or revise a description on an existing story,
+        // and members see the revision on the story already being voted on
+        String revised = description + "\n- remember me";
+        storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, revised, null, null), facilitator);
+        assertThat(sessionService.getSnapshot(code, ana).activeStory().description()).isEqualTo(revised);
+
+        // a voter may not edit story text (SEC-3)
+        assertThatThrownBy(() -> storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, "hacked", null, null), ana))
+                .isInstanceOf(ApiException.class).hasMessageContaining("facilitator");
+
+        // clearing the description is possible, and the title survives untouched
+        StoryDto cleared = storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, "  ", null, null), facilitator);
+        assertThat(cleared.description()).isNull();
+        assertThat(cleared.title()).isEqualTo("Login page");
+    }
+
+    @Test
+    void storyCanBeCreatedWithoutADescription() {
+        CreateSessionResponse created = createSession(false, true);
+        String code = created.session().code();
+        AuthPrincipal facilitator = principal(created.participant().id(), code);
+        StoryDto story = storyService.add(code, new StoryRequest("No details", "", null), facilitator);
+        assertThat(story.description()).isNull();
+        assertThat(story.referenceUrl()).isNull();
+    }
+
+    @Test
     void storyImportCreatesOneStoryPerLine() {
         CreateSessionResponse created = createSession(false, true);
         String code = created.session().code();

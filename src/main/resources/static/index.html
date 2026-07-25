@@ -103,7 +103,7 @@
                 <div id="active-story" hidden>
                     <span class="label">Now estimating</span>
                     <h3 id="active-story-title"></h3>
-                    <p id="active-story-desc" class="muted"></p>
+                    <div id="active-story-desc" class="story-description" hidden></div>
                     <a id="active-story-link" target="_blank" rel="noopener noreferrer" hidden>Reference ↗</a>
                 </div>
             </div>
@@ -138,8 +138,13 @@
                 <form id="add-story-form">
                     <label for="story-title" class="sr-only">Story title</label>
                     <input id="story-title" placeholder="Story title" maxlength="255" required>
+                    <label for="story-description" class="sr-only">Description (optional)</label>
+                    <textarea id="story-description" rows="3" maxlength="10000"
+                              placeholder="Description (optional) — shown to everyone while voting"></textarea>
+                    <label for="story-url" class="sr-only">Reference URL (optional)</label>
                     <input id="story-url" placeholder="Reference URL (optional)" maxlength="500">
-                    <button type="submit" class="btn small">Add story</button>
+                    <button type="submit" id="btn-save-story" class="btn small">Add story</button>
+                    <button type="button" id="btn-cancel-edit" class="btn small" hidden>Cancel</button>
                     <button type="button" id="btn-toggle-import" class="btn small">Paste list…</button>
                 </form>
                 <form id="import-form" hidden>
