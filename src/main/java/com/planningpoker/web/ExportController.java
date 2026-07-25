@@ -1,16 +1,21 @@
 package com.planningpoker.web;
 
+import com.planningpoker.dto.Dtos.ExportBundle;
 import com.planningpoker.service.ExportService;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-
 import static com.planningpoker.web.SessionController.principalOf;
 
+/**
+ * Serves the export bundle. CSV and JSON files are rendered in the browser
+ * from this payload: story titles and participant names are end-to-end
+ * encrypted, so only a client holding the room key can produce a readable
+ * file. No filename is set here — it would embed the session code in a
+ * response header for no benefit.
+ */
 @RestController
 @RequestMapping("/api/sessions/{code}/export")
 public class ExportController {
@@ -22,25 +27,9 @@ public class ExportController {
     }
 
     @GetMapping
-    public ResponseEntity<?> export(@PathVariable String code,
-                                    @RequestParam(defaultValue = "json") String format,
-                                    Authentication authentication) {
-        return switch (format.toLowerCase()) {
-            case "json" -> {
-                Map<String, Object> body = exportService.exportJson(code, principalOf(authentication));
-                yield ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=session-" + code + ".json")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(body);
-            }
-            case "csv" -> {
-                String csv = exportService.exportCsv(code, principalOf(authentication));
-                yield ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=session-" + code + ".csv")
-                        .contentType(MediaType.parseMediaType("text/csv; charset=utf-8"))
-                        .body(csv);
-            }
-            default -> throw ApiException.badRequest("INVALID_FORMAT", "format must be csv or json");
-        };
+    public ResponseEntity<ExportBundle> export(@PathVariable String code, Authentication authentication) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(exportService.export(code, principalOf(authentication)));
     }
 }

@@ -19,7 +19,9 @@ public class Participant {
     @Column(name = "user_id")
     private UUID userId;
 
-    @Column(name = "display_name", nullable = false, length = 50)
+    // encrypted by the client before it ever reaches the server; stored
+    // verbatim and echoed back opaque (see docs/PRIVACY.md)
+    @Column(name = "display_name", nullable = false, columnDefinition = "text")
     private String displayName;
 
     @Enumerated(EnumType.STRING)

@@ -39,7 +39,7 @@ public class StoryController {
     public List<StoryDto> importStories(@PathVariable String code,
                                         @Valid @RequestBody ImportStoriesRequest req,
                                         Authentication authentication) {
-        return storyService.importFromText(code, req.text(), principalOf(authentication));
+        return storyService.importEncryptedTitles(code, req.titles(), principalOf(authentication));
     }
 
     @PutMapping("/{storyId}")

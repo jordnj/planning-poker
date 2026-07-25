@@ -7,6 +7,8 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
         String jwtSecret,
+        /** Base64-encoded 32-byte AES key for at-rest column encryption. */
+        String dataKey,
         String baseUrl,
         Session session,
         Token token,

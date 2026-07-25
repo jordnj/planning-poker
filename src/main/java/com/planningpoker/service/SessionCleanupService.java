@@ -38,7 +38,8 @@ public class SessionCleanupService {
         for (Session session : idle) {
             session.setStatus(SessionStatus.CLOSED);
             broadcaster.toSession(session.getCode(), WsEvent.SESSION_CLOSED, null);
-            log.info("Closed idle session {}", session.getCode());
+            // log the opaque id, never the code: codes are the capability to join
+            log.info("Closed idle session id={}", session.getId());
         }
     }
 }

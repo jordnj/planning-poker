@@ -63,7 +63,7 @@ public class WsAuthChannelInterceptor implements ChannelInterceptor {
                 if (principal == null || !principal.isParticipant()
                         || !code.equals(principal.sessionCode())
                         || !participants.existsByIdAndActiveTrueAndSession_Code(principal.id(), code)) {
-                    throw new IllegalArgumentException("Not a member of session " + code);
+                    throw new IllegalArgumentException("Not a member of the requested session");
                 }
             } else if (destination != null && !destination.startsWith("/user/")) {
                 throw new IllegalArgumentException("Subscription not allowed: " + destination);

@@ -15,20 +15,25 @@ public class Story {
     @JoinColumn(name = "session_id")
     private Session session;
 
-    @Column(nullable = false, length = 255)
+    // title, description and referenceUrl arrive already encrypted by the
+    // client and are stored verbatim — the server holds no key for them and
+    // never reads their contents (see docs/PRIVACY.md)
+    @Column(nullable = false, columnDefinition = "text")
     private String title;
 
     @Column(columnDefinition = "text")
     private String description;
 
-    @Column(name = "reference_url", length = 500)
+    @Column(name = "reference_url", columnDefinition = "text")
     private String referenceUrl;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StoryStatus status = StoryStatus.PENDING;
 
-    @Column(name = "final_estimate", length = 50)
+    // a card value like a vote, so encrypted at rest with the server-held key
+    @Convert(converter = com.planningpoker.crypto.EncryptedStringConverter.class)
+    @Column(name = "final_estimate", columnDefinition = "text")
     private String finalEstimate;
 
     @Column(name = "order_index", nullable = false)

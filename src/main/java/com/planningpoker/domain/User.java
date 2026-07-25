@@ -15,7 +15,9 @@ public class User {
     @Column(nullable = false, unique = true, length = 50)
     private String username;
 
-    @Column(length = 255)
+    // encrypted at rest; username stays plaintext because login looks up by it
+    @Convert(converter = com.planningpoker.crypto.EncryptedStringConverter.class)
+    @Column(columnDefinition = "text")
     private String email;
 
     @Column(name = "password_hash", nullable = false, length = 100)

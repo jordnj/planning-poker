@@ -186,6 +186,30 @@ form button[type="submit"] {
     margin: 0;
 }
 
+.hint {
+    font-size: .78rem;
+    color: var(--muted);
+    margin: .3rem 0 0;
+    line-height: 1.35;
+}
+
+.room-key-box {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    max-width: 22rem;
+}
+
+.room-key-box input {
+    font-family: ui-monospace, monospace;
+    font-size: .8rem;
+}
+
+#join-room-key {
+    font-family: ui-monospace, monospace;
+    font-size: .85rem;
+}
+
 .code-badge {
     font-family: ui-monospace, monospace;
     background: #e8edf7;

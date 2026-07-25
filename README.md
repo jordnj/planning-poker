@@ -31,6 +31,15 @@ layer (SockJS fallback), and a dependency-free single-page frontend.
 - **Security**: JWT for both REST and the STOMP handshake; guests get signed
   session-scoped participant tokens; per-action server-side authorization;
   rate-limited session creation and join; Bean Validation on all inputs.
+- **Privacy**: story text and participant names are end-to-end encrypted in the
+  browser with a room key the server never receives, so neither a database
+  admin nor the operator can read them. Session names, vote values, final
+  estimates and user emails are encrypted at rest with a server-held key.
+  Client IPs are never retained and session codes stay out of logs.
+  **Read [docs/PRIVACY.md](docs/PRIVACY.md)** for the threat model, the
+  deliberate limits (votes are readable by the operator; joining needs the
+  invite link or room key; export is rendered client-side) and the residual
+  exposure.
 
 ## Running
 
@@ -46,13 +55,19 @@ the in-process STOMP broker, so no external services are needed.
 ### Production (PostgreSQL)
 
 ```bash
-export APP_JWT_SECRET="<random string, ≥32 bytes>"
+export APP_JWT_SECRET="$(head -c 48 /dev/urandom | base64)"
+# base64 of exactly 32 bytes; rotating it makes existing at-rest columns
+# unreadable, so re-encrypt before rotating
+export APP_DATA_KEY="$(head -c 32 /dev/urandom | base64)"
 export DB_URL="jdbc:postgresql://db:5432/planningpoker"
 export DB_USERNAME=planningpoker
 export DB_PASSWORD=...
 ./gradlew bootJar
 java -jar build/libs/planning-poker-0.1.0.jar --spring.profiles.active=postgres
 ```
+
+Serve over HTTPS in any real deployment: the browser's WebCrypto API is only
+available in a secure context, and the app refuses to encrypt without it.
 
 The schema is managed by Flyway migrations (`src/main/resources/db/migration`);
 no runtime auto-DDL. For horizontal scaling, switch the simple broker in
@@ -76,7 +91,7 @@ Terminate TLS (HTTPS/WSS) at the load balancer or servlet container.
 | PUT / DELETE | `/api/sessions/{code}/stories/{id}` | Edit, reorder, delete | facilitator |
 | POST | `/api/sessions/{code}/stories/{id}/select` | Start voting on story | facilitator |
 | POST | `/api/sessions/{code}/stories/{id}/estimate` | Record final estimate | facilitator |
-| GET | `/api/sessions/{code}/export?format=csv\|json` | Export results | facilitator |
+| GET | `/api/sessions/{code}/export` | Export bundle (ciphertext; the browser decrypts and writes the CSV/JSON) | facilitator |
 | GET / POST | `/api/decks` | List / create decks | — / user |
 
 Errors use a consistent body: `timestamp`, `status`, `code`, `message`, `traceId`.

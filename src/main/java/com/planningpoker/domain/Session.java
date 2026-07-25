@@ -15,7 +15,9 @@ public class Session {
     @Column(nullable = false, unique = true, length = 16)
     private String code;
 
-    @Column(nullable = false, length = 100)
+    // encrypted at rest with the server-held key
+    @Convert(converter = com.planningpoker.crypto.EncryptedStringConverter.class)
+    @Column(nullable = false, columnDefinition = "text")
     private String name;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)

@@ -61,6 +61,15 @@
                 <input id="join-your-name" name="yourName" required maxlength="50"
                        placeholder="Sam" autocomplete="name">
 
+                <div id="join-room-key-row">
+                    <label for="join-room-key">Room key</label>
+                    <input id="join-room-key" maxlength="64" autocomplete="off"
+                           spellcheck="false" placeholder="Paste the room key">
+                    <p class="hint">Sessions are end-to-end encrypted. Opening the facilitator's
+                        invite link fills this in automatically; otherwise paste the room key
+                        they shared. The server never receives it.</p>
+                </div>
+
                 <label class="checkbox"><input type="checkbox" id="join-as-observer">
                     Join as observer (watch only)</label>
 
@@ -77,6 +86,14 @@
             <h1 id="session-name"></h1>
             <span id="session-code-badge" class="code-badge" title="Session code"></span>
             <button id="btn-copy-link" class="btn small" type="button">Copy invite link</button>
+            <button id="btn-show-room-key" class="btn small" type="button">Room key</button>
+            <span id="room-key-box" class="room-key-box" hidden>
+                <label for="room-key-value" class="sr-only">Room key</label>
+                <input id="room-key-value" readonly spellcheck="false"
+                       aria-describedby="room-key-hint">
+                <span id="room-key-hint" class="hint">Needed to read this session.
+                    Share it privately with anyone joining by code.</span>
+            </span>
         </div>
         <div class="session-header-right">
             <span id="conn-indicator" class="conn-dot disconnected" title="Connection status"
