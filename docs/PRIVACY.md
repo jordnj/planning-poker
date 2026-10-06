@@ -90,6 +90,11 @@ that is a deliberate redesign, not a configuration change.
   Hibernate loggers are pinned off.
 - **Failure messages from snapshot delivery are not logged**, only the session
   id, since exception text can carry session content.
+- **Operator endpoints are closed to participants.** `/actuator/metrics` runs
+  on its own security filter chain that deliberately does not consult the JWT
+  filter, so a guest's session token cannot open it — previously any
+  participant token read it and learned session counts and JVM internals.
+  Health and info stay public for platform probes.
 
 ## Known residual exposure
 
@@ -121,8 +126,12 @@ Stated plainly, because a security document that only lists wins is not useful:
 # 32 random bytes, base64 — from a secret manager in production
 export APP_DATA_KEY="$(head -c 32 /dev/urandom | base64)"
 export APP_JWT_SECRET="$(head -c 48 /dev/urandom | base64)"
+# operator credential for /actuator/metrics; with none set the endpoint is
+# closed to everyone, which is the default
+export APP_ACTUATOR_PASSWORD="$(head -c 24 /dev/urandom | base64)"
 ```
 
-The dev default in `application.yml` exists only so `bootRun` works; it is
+The dev defaults in `application.yml` exist only so `bootRun` works; they are
 clearly labelled and must not be used anywhere real. Serve over HTTPS so
 WebCrypto is available and the room key is not exposed in transit.
+`docs/DEPLOYMENT.md` covers a deployment that satisfies both.

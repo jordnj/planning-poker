@@ -1,0 +1,12 @@
+# Keep the build context small and avoid shipping host state into the image.
+.git
+.gitignore
+build
+.gradle
+docs
+NOTES.md
+*.log
+.idea
+.vscode
+# the run skill's driver is agent tooling, not part of the app
+.claude

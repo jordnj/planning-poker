@@ -128,6 +128,38 @@ so a bare `tail` shows only blank lines.
 
 Tear down with `tmux kill-session -t pp`.
 
+## Run in a container
+
+The repo ships a `Dockerfile` (multi-stage; Alpine JRE runtime, non-root, JVM
+flags sized for a 512 MiB instance). Verified locally:
+
+```bash
+docker build -t planning-poker:local .
+docker run -d --name pp -p 8080:8080 --memory 512m \
+  -e PORT=8080 \
+  -e APP_JWT_SECRET="$(head -c 48 /dev/urandom | base64 -w0)" \
+  -e APP_DATA_KEY="$(head -c 32 /dev/urandom | base64 -w0)" \
+  planning-poker:local
+timeout 120 bash -c 'until curl -sf http://localhost:8080/actuator/health >/dev/null; do sleep 1; done'
+node .claude/skills/run-planning-poker/driver.mjs smoke
+docker rm -f pp
+```
+
+411 MB image, ~272 MiB of the 512 MiB limit, ~7 s to boot.
+
+## Check a deployment
+
+The same smoke doubles as a post-deploy gate — it exits non-zero if the
+deployed origin cannot do WebCrypto, which is the most likely way a deployment
+is broken:
+
+```bash
+node .claude/skills/run-planning-poker/driver.mjs smoke --url https://your-service.run.app
+```
+
+It leaves one finished session behind, which expires on its own. Deploy with
+`./deploy.sh --verify` to run it automatically; see `docs/DEPLOYMENT.md`.
+
 ## Direct invocation (Java internals)
 
 Most backend changes need only a targeted test, which is far faster than the
@@ -179,7 +211,12 @@ print(f'{t} tests, {f} failures')"
   context. Over `http://192.0.2.2:8080` `window.isSecureContext` is `false`,
   `crypto.subtle` is `undefined`, and session creation fails outright with
   *"This browser cannot encrypt (needs HTTPS or localhost)"*. `http://localhost:8080`
-  is a secure context and works.
+  is a secure context and works. The driver's preflight check catches this and
+  aborts with exit 1.
+- **More than one instance silently breaks real-time.** The STOMP broker and
+  rate limiter are both in-process, so participants on different instances stop
+  seeing each other's votes with no error anywhere. Any deployment must pin a
+  single instance.
 - **Playwright is only in the global prefix.** A bare `import('playwright')`
   fails from this repo (`ERR_MODULE_NOT_FOUND`; no local `node_modules`, empty
   `NODE_PATH`), and the global entry is CommonJS whose named exports do not

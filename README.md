@@ -69,6 +69,18 @@ java -jar build/libs/planning-poker-0.1.0.jar --spring.profiles.active=postgres
 Serve over HTTPS in any real deployment: the browser's WebCrypto API is only
 available in a secure context, and the app refuses to encrypt without it.
 
+### Cloud Run (zero-cost for a small team)
+
+```bash
+./deploy.sh --verify
+```
+
+Builds the container, deploys it pinned to a single instance (required: the
+STOMP broker and rate limiter are in-process), and runs the browser smoke
+against the live URL. Secrets are generated on first deploy and reused
+afterwards. See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for sizing,
+the cold-start and persistence trade-offs, and operating notes.
+
 The schema is managed by Flyway migrations (`src/main/resources/db/migration`);
 no runtime auto-DDL. For horizontal scaling, switch the simple broker in
 `WebSocketConfig` to a STOMP broker relay (RabbitMQ) or Redis pub/sub so events

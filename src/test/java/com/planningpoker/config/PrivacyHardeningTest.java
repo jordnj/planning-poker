@@ -28,7 +28,8 @@ class PrivacyHardeningTest {
         AppProperties props = new AppProperties("x".repeat(32), null, null,
                 new AppProperties.Session(Duration.ofHours(4), 300_000),
                 new AppProperties.Token(Duration.ofHours(1), Duration.ofHours(1)),
-                new AppProperties.RateLimit(20, 60));
+                new AppProperties.RateLimit(20, 60),
+                new AppProperties.Actuator("actuator", ""));
         RateLimitFilter filter = new RateLimitFilter(props);
 
         String bucket = filter.pseudonym("203.0.113.47");

@@ -11,8 +11,10 @@
  *   node driver.mjs smoke   # full multi-participant round + privacy asserts
  *   node driver.mjs repl    # line-based REPL on stdin, for tmux driving
  *
- * Requires the server to already be listening on $PP_URL (default
- * http://localhost:8080) — see SKILL.md for the launch line.
+ * Targets http://localhost:8080 by default; pass --url https://host (or set
+ * PP_URL) to run the same checks against a deployed instance as a post-deploy
+ * gate. Note that `smoke` writes: it leaves one finished session behind, which
+ * expires on its own.
  */
 
 import readline from 'node:readline';
@@ -41,7 +43,10 @@ if (!chromium) {
   process.exit(2);
 }
 
-const BASE = process.env.PP_URL || 'http://localhost:8080';
+// --url <url> overrides PP_URL, which overrides the local default.
+const argv = process.argv.slice(2);
+const urlFlag = argv.indexOf('--url');
+const BASE = (urlFlag !== -1 && argv[urlFlag + 1]) || process.env.PP_URL || 'http://localhost:8080';
 const SHOTS = process.env.PP_SHOTS || '/tmp/pp-shots';
 // Chromium ships in the image; never let Playwright try to download one.
 const EXECUTABLE = process.env.PP_CHROMIUM || '/opt/pw-browsers/chromium';
@@ -68,7 +73,8 @@ async function waitForServer(timeoutMs = 60000) {
   }
   throw new Error(
     `No server at ${BASE} after ${timeoutMs}ms. Start it first:\n` +
-    `  java -jar build/libs/planning-poker-0.1.0.jar > /tmp/pp.log 2>&1 &`);
+    `  java -jar build/libs/planning-poker-0.1.0.jar > /tmp/pp.log 2>&1 &\n` +
+    `or target a deployed one with --url https://host`);
 }
 
 // ------------------------------------------------------------------ harness
@@ -124,6 +130,24 @@ class Harness {
     const p = this.pages.get(name);
     if (!p) throw new Error(`No such participant "${name}". Known: ${[...this.pages.keys()].join(', ') || '(none)'}`);
     return p;
+  }
+
+  /**
+   * Confirms the browser gets a secure context at this origin. Over plain
+   * HTTP on anything but localhost, crypto.subtle is undefined and the app
+   * refuses to create a session at all — the single most likely way a
+   * deployment is broken, so it is checked before anything else.
+   */
+  async preflight() {
+    const page = await this.newPage('_preflight');
+    await page.goto(BASE);
+    const result = await page.evaluate(() => ({
+      secure: window.isSecureContext,
+      subtle: !!(window.crypto && window.crypto.subtle),
+    }));
+    await page.context().close();
+    this.pages.delete('_preflight');
+    return result;
   }
 
   /** Creates a session as facilitator and captures the code + room key. */
@@ -222,8 +246,19 @@ async function smoke() {
   const DESC = 'Confidential: replace the legacy basket.\nOwner: Fay';
 
   try {
+    log(`\ntarget ${BASE}`);
+    const ctx = await h.preflight();
+    check(ctx.secure && ctx.subtle,
+      `browser gets a secure context (isSecureContext=${ctx.secure}, crypto.subtle=${ctx.subtle})`);
+    if (!ctx.secure || !ctx.subtle) {
+      log('\nAborting: without WebCrypto the app cannot encrypt and refuses to ' +
+          'create sessions. Serve over HTTPS (or use localhost).');
+      await h.stop();
+      process.exit(1);
+    }
+
     const { code, roomKey } = await h.create('Sprint 42');
-    log(`\nsession ${code}  key ${roomKey.slice(0, 12)}…`);
+    log(`session ${code}  key ${roomKey.slice(0, 12)}…`);
 
     await h.addStory(TITLE, DESC);
     await h.select(1);
@@ -280,6 +315,16 @@ async function smoke() {
     // read from `stories`, not `activeStory`: recording an estimate moves the
     // story out of VOTING, so activeStory is legitimately null by now
     check(api.stories[0].title.startsWith('e1.'), 'server holds the title as ciphertext');
+
+    // a guest session token must not open the operator endpoints; this was a
+    // real leak (metrics answered 200 to any participant) before the dedicated
+    // actuator filter chain
+    const metrics = await fetch(`${BASE}/actuator/metrics`,
+      { headers: { Authorization: 'Bearer ' + token } });
+    check(metrics.status === 401,
+      `actuator metrics closed to a guest token (got HTTP ${metrics.status})`);
+    const health = await fetch(`${BASE}/actuator/health`);
+    check(health.ok, 'actuator health stays public for platform probes');
 
     check(h.errors.length === 0,
       `no page errors or failed requests${h.errors.length ? ': ' + h.errors.join(' | ') : ''}`);

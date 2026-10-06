@@ -21,7 +21,8 @@ spring:
     locations: classpath:db/migration
 
 server:
-  port: 8080
+  # Cloud Run and most PaaS inject the port to listen on
+  port: ${PORT:8080}
   tomcat:
     accesslog:
       # request paths embed the session code, which is the capability to join a
@@ -39,7 +40,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        # prometheus is omitted: no micrometer-registry-prometheus on the
+        # classpath, so listing it only advertises an endpoint that 404s
+        include: health,info,metrics
   endpoint:
     health:
       probes:
@@ -63,6 +66,12 @@ app:
   rate-limit:
     session-create-per-minute: 20
     join-per-minute: 60
+  actuator:
+    # /actuator/metrics requires these credentials; with no password set, no
+    # account exists and the endpoint is closed to everyone. health and info
+    # stay public for platform probes.
+    user: ${APP_ACTUATOR_USER:actuator}
+    password: ${APP_ACTUATOR_PASSWORD:}
 
 ---
 spring:
