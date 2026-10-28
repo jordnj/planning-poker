@@ -1,0 +1,26 @@
+# Keep line endings correct regardless of the platform a clone happens on.
+#
+# Git for Windows defaults to core.autocrlf=true, which rewrites LF to CRLF in
+# the working tree. For a shell script that is fatal: the shebang becomes
+# "#!/bin/sh\r", and anything executing it reports "not found" (exit 127)
+# because the kernel looks for an interpreter literally named "sh\r". It broke
+# the Cloud Run source build, and would equally break deploy.sh under WSL.
+
+# Normalize everything in the repository to LF, in the working tree too.
+* text=auto eol=lf
+
+# Windows-only scripts are the exception: cmd.exe needs CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts and the Gradle wrapper must stay LF on every platform.
+gradlew text eol=lf
+*.sh text eol=lf
+
+# PowerShell handles either, but keep it LF for consistency with the repo.
+*.ps1 text eol=lf
+
+# Never translate binaries.
+*.jar binary
+*.png binary
+*.p12 binary

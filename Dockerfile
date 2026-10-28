@@ -9,11 +9,15 @@ WORKDIR /src
 # Dependency layer first so edits to src/ do not re-download the world.
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle ./gradle
-# Do not trust the source's permission bits. `gcloud run deploy --source .`
-# zips the working directory, and a Windows filesystem cannot represent the
-# Unix executable bit, so gradlew arrives mode 644 and every ./gradlew call
-# fails with "Permission denied" (exit 126) even though git records 100755.
-RUN chmod +x ./gradlew
+# Do not trust how the source archive was produced. `gcloud run deploy
+# --source .` zips the working directory, and a Windows checkout differs from
+# a Linux one in two ways that both break the wrapper script:
+#   * no Unix executable bit, so ./gradlew fails with "Permission denied" (126)
+#   * CRLF line endings, so the shebang reads "#!/bin/sh\r" and the kernel
+#     looks for an interpreter named "sh\r": "not found" (127)
+# .gitattributes keeps new clones from producing CRLF; this keeps the build
+# working even when the archive already contains it.
+RUN sed -i 's/\r$//' ./gradlew && chmod +x ./gradlew
 RUN ./gradlew --no-daemon dependencies --quiet || true
 
 COPY src ./src
