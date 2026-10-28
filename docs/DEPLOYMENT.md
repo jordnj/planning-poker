@@ -82,6 +82,18 @@ anyone with console access to the project. That is the free option. Google
 Secret Manager is the better practice; check its current pricing, as it is not
 necessarily free.
 
+### Windows and gcloud's stderr
+
+`gcloud` on Windows is `gcloud.ps1`, which shells out to `python.exe`, and
+`$ErrorActionPreference` is inherited by it. Under `'Stop'`, any line that
+python writes to stderr becomes a terminating `NativeCommandError` — which
+killed a first deploy on the entirely benign "Cannot find service". The script
+therefore asks whether the service exists with `gcloud run services list`
+(exit 0 and no output when absent) rather than `describe` (an error when
+absent), so the first-deploy path produces no stderr at all. It also relaxes
+the preference around every gcloud call, including the deploy itself, whose
+Cloud Build progress goes to stderr for minutes.
+
 ### When the script refuses to deploy
 
 Reuse only works if the script can actually read the existing service, so
