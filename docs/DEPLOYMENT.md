@@ -69,8 +69,7 @@ once is enough.
 
 The script generates `APP_JWT_SECRET`, `APP_DATA_KEY` and
 `APP_ACTUATOR_PASSWORD` on the first deploy and **reuses them afterwards** by
-reading them back off the deployed service. That reuse matters:
-- rotating `APP_DATA_KEY` makes every at-rest encrypted column (session names,
+reading them back off the deployed service. That reuse matters:- rotating `APP_DATA_KEY` makes every at-rest encrypted column (session names,
   vote values, final estimates, user emails) permanently unreadable;
 - rotating `APP_JWT_SECRET` signs everyone out mid-session.
 
@@ -82,6 +81,32 @@ Secrets are stored as plain environment variables on the service, visible to
 anyone with console access to the project. That is the free option. Google
 Secret Manager is the better practice; check its current pricing, as it is not
 necessarily free.
+
+### When the script refuses to deploy
+
+Reuse only works if the script can actually read the existing service, so
+"no secrets yet" has to mean *the service does not exist* — not merely that the
+lookup failed. An expired credential, a permissions error or a transient API
+failure otherwise looks identical to a first deploy, and the deploy would push
+a freshly minted `APP_DATA_KEY` over a live service, making every encrypted
+column permanently unreadable.
+
+So when `gcloud run services describe` fails with anything that is not a clear
+"not found", both scripts print the gcloud error and stop with exit 1 rather
+than guess. Fix the underlying problem and re-run. If you are certain there is
+nothing to preserve — a scratch project, or a service you are happy to reset —
+override it:
+
+```bash
+./deploy.sh --allow-new-secrets        # PowerShell: .\deploy.ps1 -AllowNewSecrets
+```
+
+The same flag is needed to preview the command with `--dry-run` while
+credentials are broken, since the check runs first either way.
+
+A related case is handled with a warning rather than a refusal: if the service
+exists but carries no `APP_DATA_KEY`, it has been running on the committed dev
+default, so a new key is generated and the script says so.
 
 ## Sizing
 

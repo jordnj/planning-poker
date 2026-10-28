@@ -19,11 +19,17 @@
 .EXAMPLE
     .\deploy.ps1 -DryRun
     Print the gcloud command, with secrets redacted, without running it.
+
+.EXAMPLE
+    .\deploy.ps1 -AllowNewSecrets
+    Mint fresh secrets even when the existing service cannot be read. This
+    destroys access to anything already encrypted at rest.
 #>
 [CmdletBinding()]
 param(
     [switch] $DryRun,
     [switch] $Verify,
+    [switch] $AllowNewSecrets,
     [string] $Service = $(if ($env:SERVICE) { $env:SERVICE } else { 'planning-poker' }),
     [string] $Region  = $(if ($env:REGION)  { $env:REGION }  else { 'us-central1' }),
     [string] $Memory  = $(if ($env:MEMORY)  { $env:MEMORY }  else { '512Mi' }),
@@ -34,6 +40,14 @@ $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 
 # ------------------------------------------------------------------ helpers
+
+function Write-Err {
+    # deploy.sh sends diagnostics to stderr; Write-Host would put them on
+    # stdout and break piping/CI parity, and Write-Error would throw under
+    # $ErrorActionPreference = 'Stop'.
+    param([string] $Message)
+    [Console]::Error.WriteLine($Message)
+}
 
 function Invoke-GCloud {
     # Returns stdout; sets $script:LastGCloudExit. Native stderr is discarded
@@ -74,7 +88,7 @@ function Get-DeployedEnvValue {
 # ---------------------------------------------------------------- preflight
 
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
-    Write-Host @'
+    Write-Err @'
 gcloud is not installed. Install the Google Cloud CLI, then:
   winget install --id Google.CloudSDK -e
   gcloud init
@@ -90,7 +104,7 @@ if ([string]::IsNullOrWhiteSpace($Project)) {
     $Project = (Invoke-GCloud @('config', 'get-value', 'project') | Out-String).Trim()
 }
 if ([string]::IsNullOrWhiteSpace($Project) -or $Project -eq '(unset)') {
-    Write-Host @'
+    Write-Err @'
 No project set. Either:
   gcloud config set project YOUR_PROJECT_ID
 or pass one:
@@ -111,10 +125,49 @@ enabled:
 # estimates, emails) permanently unreadable, and rotating APP_JWT_SECRET would
 # sign out everyone mid-session. Only mint a key when there is genuinely none.
 
-$describeJson = Invoke-GCloud @(
-    'run', 'services', 'describe', $Service,
-    '--region', $Region, '--project', $Project, '--format=json'
-) | Out-String
+$describeErr = [System.IO.Path]::GetTempFileName()
+try {
+    $describeJson = (& gcloud run services describe $Service `
+        --region $Region --project $Project --format=json 2>$describeErr | Out-String)
+    $describeExit = $LASTEXITCODE
+    $describeError = ''
+    if (Test-Path -LiteralPath $describeErr) {
+        $describeError = (Get-Content -Raw -LiteralPath $describeErr -ErrorAction SilentlyContinue)
+    }
+    if ($null -eq $describeError) { $describeError = '' }
+} finally {
+    Remove-Item -LiteralPath $describeErr -ErrorAction SilentlyContinue
+}
+
+# "No secrets yet" must mean the service does not exist, NOT merely that we
+# could not read it: an expired credential looks identical to a first deploy
+# and would silently replace APP_DATA_KEY.
+$serviceExists = $false
+if ($describeExit -eq 0) {
+    $serviceExists = $true
+} elseif ($describeError -match '(?i)NOT_FOUND|cannot find service|could not be found|does not exist') {
+    $serviceExists = $false
+} elseif ($AllowNewSecrets) {
+    $serviceExists = $false
+    Write-Err 'WARNING: could not read the existing service; continuing with fresh secrets because -AllowNewSecrets was given.'
+} else {
+    Write-Err "Could not determine whether '$Service' already exists in $Region."
+    Write-Err ''
+    Write-Err 'gcloud said:'
+    foreach ($line in ($describeError -split "`n")) {
+        if ($line.Trim()) { Write-Err ('  ' + $line.TrimEnd()) }
+    }
+    Write-Err ''
+    Write-Err @'
+Refusing to continue. If the service does exist, deploying now would replace
+APP_DATA_KEY and make every encrypted column (session names, vote values,
+estimates, emails) permanently unreadable. Fix the error above and re-run, or
+pass -AllowNewSecrets if there is genuinely nothing to preserve.
+'@
+    exit 1
+}
+
+if (-not $serviceExists) { $describeJson = '' }
 
 $jwtSecret        = Get-DeployedEnvValue -Name 'APP_JWT_SECRET'        -Json $describeJson
 $dataKey          = Get-DeployedEnvValue -Name 'APP_DATA_KEY'          -Json $describeJson
@@ -126,6 +179,13 @@ if ([string]::IsNullOrWhiteSpace($jwtSecret)) {
     $newSecrets = $true
 }
 if ([string]::IsNullOrWhiteSpace($dataKey)) {
+    if ($serviceExists) {
+        Write-Err @"
+WARNING: '$Service' is deployed but carries no APP_DATA_KEY, so it has been
+running on the dev default. A new key is being generated; anything already
+encrypted under the old one becomes unreadable.
+"@
+    }
     # must decode to exactly 32 bytes; the app refuses to start otherwise
     $dataKey = New-RandomKey 32
     $newSecrets = $true

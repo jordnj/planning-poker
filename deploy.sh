@@ -6,6 +6,9 @@
 #   ./deploy.sh              deploy (generates secrets on first run)
 #   ./deploy.sh --verify     deploy, then run the browser smoke against the URL
 #   ./deploy.sh --dry-run    print the gcloud command without running it
+#   ./deploy.sh --allow-new-secrets
+#                            mint fresh secrets even when the existing service
+#                            cannot be read (destroys access to encrypted data)
 #
 # Config via environment: SERVICE, REGION, PROJECT, MEMORY.
 #
@@ -18,11 +21,13 @@ PROJECT="${PROJECT:-}"
 
 DRY_RUN=false
 VERIFY=false
+ALLOW_NEW_SECRETS=false
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --verify)  VERIFY=true ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --allow-new-secrets) ALLOW_NEW_SECRETS=true ;;
+    -h|--help) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -55,11 +60,48 @@ fi
 # would make every existing at-rest column (session names, vote values,
 # estimates, emails) permanently unreadable, and rotating APP_JWT_SECRET would
 # sign out everyone mid-session. Only mint a key when there is genuinely none.
+#
+# "Genuinely none" has to mean the service does not exist — NOT merely that we
+# failed to read it. An expired credential or a transient API error would
+# otherwise look identical to a first deploy and silently replace the key, so
+# an indeterminate answer stops the deploy instead of guessing.
+
+DESCRIBE_ERR="$(mktemp)"
+trap 'rm -f "$DESCRIBE_ERR"' EXIT
+
+set +e
+DESCRIBE_JSON="$(gcloud run services describe "$SERVICE" \
+  --region "$REGION" --project "$PROJECT" --format=json 2>"$DESCRIBE_ERR")"
+DESCRIBE_RC=$?
+set -e
+
+if [ "$DESCRIBE_RC" -eq 0 ]; then
+  SERVICE_EXISTS=true
+elif grep -qiE 'NOT_FOUND|cannot find service|could not be found|does not exist' "$DESCRIBE_ERR"; then
+  SERVICE_EXISTS=false
+elif [ "$ALLOW_NEW_SECRETS" = true ]; then
+  SERVICE_EXISTS=false
+  echo "WARNING: could not read the existing service; continuing with fresh" >&2
+  echo "secrets because --allow-new-secrets was given." >&2
+else
+  {
+    echo "Could not determine whether '$SERVICE' already exists in $REGION."
+    echo
+    echo "gcloud said:"
+    sed 's/^/  /' "$DESCRIBE_ERR"
+    echo
+    echo "Refusing to continue. If the service does exist, deploying now would"
+    echo "replace APP_DATA_KEY and make every encrypted column (session names,"
+    echo "vote values, estimates, emails) permanently unreadable. Fix the error"
+    echo "above and re-run, or pass --allow-new-secrets if there is genuinely"
+    echo "nothing to preserve."
+  } >&2
+  exit 1
+fi
 
 read_deployed_env() {  # $1 = env var name
-  gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" \
-    --format=json 2>/dev/null \
-  | python3 -I -c "
+  [ "$SERVICE_EXISTS" = true ] || return 0
+  printf '%s' "$DESCRIBE_JSON" | python3 -I -c "
 import sys, json
 try:
     spec = json.load(sys.stdin)['spec']['template']['spec']['containers'][0]
@@ -82,6 +124,11 @@ if [ -z "$JWT_SECRET" ]; then
   NEW_SECRETS=true
 fi
 if [ -z "$DATA_KEY" ]; then
+  if [ "$SERVICE_EXISTS" = true ]; then
+    echo "WARNING: '$SERVICE' is deployed but carries no APP_DATA_KEY, so it has" >&2
+    echo "been running on the dev default. A new key is being generated; anything" >&2
+    echo "already encrypted under the old one becomes unreadable." >&2
+  fi
   # must decode to exactly 32 bytes; the app refuses to start otherwise
   DATA_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
   NEW_SECRETS=true
