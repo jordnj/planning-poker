@@ -195,6 +195,26 @@ GCLOUD_ARGS=(
   --quiet
 )
 
+deploy_failure_hint() {
+  # The raw gcloud error for the most common first-deploy failure is a wall of
+  # IAM jargon. Printed unconditionally on failure rather than by matching the
+  # output, because the deploy streams its progress and is not captured.
+  PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)' 2>/dev/null || true)"
+  BUILD_SA="${PROJECT_NUMBER:-PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+  cat >&2 <<EOF
+
+If the error above mentions storage.objects.get, Artifact Registry or denied
+permissions, the build service account lacks the roles a source deploy needs.
+Projects created recently do not grant them automatically:
+
+  gcloud projects add-iam-policy-binding $PROJECT \\
+    --member="serviceAccount:$BUILD_SA" \\
+    --role="roles/cloudbuild.builds.builder"
+
+IAM changes take a minute or two to take effect, then re-run this script.
+EOF
+}
+
 if [ "$DRY_RUN" = true ]; then
   printf 'gcloud'
   for a in "${GCLOUD_ARGS[@]}"; do
@@ -208,7 +228,15 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 echo "Deploying $SERVICE to $REGION in $PROJECT ..."
+set +e
 gcloud "${GCLOUD_ARGS[@]}"
+DEPLOY_RC=$?
+set -e
+if [ "$DEPLOY_RC" -ne 0 ]; then
+  echo "gcloud run deploy failed with exit code $DEPLOY_RC" >&2
+  deploy_failure_hint
+  exit "$DEPLOY_RC"
+fi
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" \
         --format='value(status.url)')"

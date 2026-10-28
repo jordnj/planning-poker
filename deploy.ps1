@@ -299,6 +299,25 @@ try {
 }
 if ($deployExit -ne 0) {
     Write-Err "gcloud run deploy failed with exit code $deployExit"
+    # The raw gcloud error for the most common first-deploy failure is a wall
+    # of IAM jargon. Printed unconditionally rather than by matching output,
+    # because the deploy streams its progress and is not captured.
+    $numberResult = Invoke-GCloud @('projects', 'describe', $Project, '--format=value(projectNumber)')
+    $projectNumber = $numberResult.Output.Trim()
+    if ([string]::IsNullOrWhiteSpace($projectNumber)) { $projectNumber = 'PROJECT_NUMBER' }
+    $buildSa = "$projectNumber-compute@developer.gserviceaccount.com"
+    Write-Err ''
+    Write-Err @"
+If the error above mentions storage.objects.get, Artifact Registry or denied
+permissions, the build service account lacks the roles a source deploy needs.
+Projects created recently do not grant them automatically:
+
+  gcloud projects add-iam-policy-binding $Project ``
+    --member="serviceAccount:$buildSa" ``
+    --role="roles/cloudbuild.builds.builder"
+
+IAM changes take a minute or two to take effect, then re-run this script.
+"@
     exit $deployExit
 }
 
