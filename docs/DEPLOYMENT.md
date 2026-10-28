@@ -94,6 +94,29 @@ absent), so the first-deploy path produces no stderr at all. It also relaxes
 the preference around every gcloud call, including the deploy itself, whose
 Cloud Build progress goes to stderr for minutes.
 
+### First deploy fails on build permissions
+
+A source deploy uploads the code to a Cloud Storage bucket and has Cloud Build
+read it back. The build runs as the project's default compute service account,
+and projects created in recent years do not grant roles to default service
+accounts automatically — so the first deploy can fail with
+
+    Error 403: PROJECT_NUMBER-compute@developer.gserviceaccount.com does not
+    have storage.objects.get access to the Google Cloud Storage object
+
+Grant that account the roles a build needs, wait a minute for IAM to settle,
+and re-run:
+
+```bash
+PROJECT_NUMBER="$(gcloud projects describe YOUR_PROJECT --format='value(projectNumber)')"
+gcloud projects add-iam-policy-binding YOUR_PROJECT \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/cloudbuild.builds.builder"
+```
+
+Both scripts print this remedy, with the project number filled in, whenever a
+deploy fails.
+
 ### When the script refuses to deploy
 
 Reuse only works if the script can actually read the existing service, so
