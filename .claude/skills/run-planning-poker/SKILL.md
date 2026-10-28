@@ -158,7 +158,8 @@ node .claude/skills/run-planning-poker/driver.mjs smoke --url https://your-servi
 ```
 
 It leaves one finished session behind, which expires on its own. Deploy with
-`./deploy.sh --verify` to run it automatically; see `docs/DEPLOYMENT.md`.
+`./deploy.sh --verify` (or `.\deploy.ps1 -Verify` on Windows) to run it
+automatically; see `docs/DEPLOYMENT.md`.
 
 ## Direct invocation (Java internals)
 

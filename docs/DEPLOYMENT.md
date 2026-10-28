@@ -29,21 +29,47 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 ./deploy.sh --verify
 ```
 
-`--verify` runs the browser smoke against the deployed URL afterwards, which
-checks the things most likely to be wrong in a fresh deployment: that the
-origin yields a secure context, that a full round works end to end, that no
-plaintext leaves the browser, and that `/actuator/metrics` is closed.
+On Windows, use the PowerShell port instead — same flags, same behaviour:
 
-`./deploy.sh --dry-run` prints the exact `gcloud` command with secrets
-redacted. Settings come from the environment: `SERVICE`, `REGION`, `PROJECT`,
-`MEMORY`.
+```powershell
+.\deploy.ps1 -Verify
+```
+
+It targets Windows PowerShell 5.1 as well as PowerShell 7, and needs nothing
+beyond gcloud (`ConvertFrom-Json` replaces the bash script's `python3`
+dependency). Run it from PowerShell, not cmd.exe: cmd treats `^` as an escape
+character and mangles the `--set-env-vars` delimiter. If you would rather run
+`deploy.sh` on Windows, use WSL2 and clone inside the WSL filesystem — a
+CRLF checkout makes bash fail with `$'\r': command not found`.
+
+`--verify` / `-Verify` runs the browser smoke against the deployed URL
+afterwards, which checks the things most likely to be wrong in a fresh
+deployment: that the origin yields a secure context, that a full round works
+end to end, that no plaintext leaves the browser, and that
+`/actuator/metrics` is closed. It exits non-zero if any of that fails, so it
+is safe to chain in CI.
+
+`./deploy.sh --dry-run` (or `.\deploy.ps1 -DryRun`) prints the exact `gcloud`
+command with secrets redacted. Settings come from the environment or
+parameters: `SERVICE`, `REGION`, `PROJECT`, `MEMORY`.
+
+### If gcloud says the project is not set
+
+```powershell
+gcloud projects list                        # or create one, IDs are global
+gcloud config set project YOUR_PROJECT_ID
+gcloud billing accounts list                # Cloud Run needs billing linked
+gcloud billing projects link YOUR_PROJECT_ID --billing-account=XXXXXX-XXXXXX-XXXXXX
+```
+
+Both scripts fall back to `gcloud config get-value project`, so setting it
+once is enough.
 
 ## Secrets
 
 The script generates `APP_JWT_SECRET`, `APP_DATA_KEY` and
 `APP_ACTUATOR_PASSWORD` on the first deploy and **reuses them afterwards** by
 reading them back off the deployed service. That reuse matters:
-
 - rotating `APP_DATA_KEY` makes every at-rest encrypted column (session names,
   vote values, final estimates, user emails) permanently unreadable;
 - rotating `APP_JWT_SECRET` signs everyone out mid-session.

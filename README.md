@@ -72,7 +72,7 @@ available in a secure context, and the app refuses to encrypt without it.
 ### Cloud Run (zero-cost for a small team)
 
 ```bash
-./deploy.sh --verify
+./deploy.sh --verify          # Windows: .\deploy.ps1 -Verify
 ```
 
 Builds the container, deploys it pinned to a single instance (required: the
