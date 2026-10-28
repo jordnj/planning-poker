@@ -69,34 +69,62 @@ fi
 DESCRIBE_ERR="$(mktemp)"
 trap 'rm -f "$DESCRIBE_ERR"' EXIT
 
+# Ask whether the service exists with `list`, not `describe`. A describe of a
+# missing service is an error, whereas a filtered list answers "no such
+# service" with exit 0 and no output — so a first deploy produces no error
+# output at all, and there is no gcloud error text to pattern-match.
 set +e
-DESCRIBE_JSON="$(gcloud run services describe "$SERVICE" \
-  --region "$REGION" --project "$PROJECT" --format=json 2>"$DESCRIBE_ERR")"
-DESCRIBE_RC=$?
+LIST_OUT="$(gcloud run services list \
+  --project "$PROJECT" --region "$REGION" \
+  --filter="metadata.name=$SERVICE" --format="value(metadata.name)" 2>"$DESCRIBE_ERR")"
+LIST_RC=$?
 set -e
 
-if [ "$DESCRIBE_RC" -eq 0 ]; then
-  SERVICE_EXISTS=true
-elif grep -qiE 'NOT_FOUND|cannot find service|could not be found|does not exist' "$DESCRIBE_ERR"; then
-  SERVICE_EXISTS=false
-elif [ "$ALLOW_NEW_SECRETS" = true ]; then
-  SERVICE_EXISTS=false
-  echo "WARNING: could not read the existing service; continuing with fresh" >&2
-  echo "secrets because --allow-new-secrets was given." >&2
+SERVICE_EXISTS=false
+DESCRIBE_JSON=""
+INDETERMINATE=false
+
+if [ "$LIST_RC" -eq 0 ]; then
+  if printf '%s\n' "$LIST_OUT" | grep -qx "$SERVICE"; then
+    SERVICE_EXISTS=true
+  fi
 else
-  {
-    echo "Could not determine whether '$SERVICE' already exists in $REGION."
-    echo
-    echo "gcloud said:"
-    sed 's/^/  /' "$DESCRIBE_ERR"
-    echo
-    echo "Refusing to continue. If the service does exist, deploying now would"
-    echo "replace APP_DATA_KEY and make every encrypted column (session names,"
-    echo "vote values, estimates, emails) permanently unreadable. Fix the error"
-    echo "above and re-run, or pass --allow-new-secrets if there is genuinely"
-    echo "nothing to preserve."
-  } >&2
-  exit 1
+  INDETERMINATE=true
+fi
+
+if [ "$SERVICE_EXISTS" = true ]; then
+  set +e
+  DESCRIBE_JSON="$(gcloud run services describe "$SERVICE" \
+    --region "$REGION" --project "$PROJECT" --format=json 2>"$DESCRIBE_ERR")"
+  DESCRIBE_RC=$?
+  set -e
+  if [ "$DESCRIBE_RC" -ne 0 ]; then
+    # it exists but we cannot read it: never mint over a live service
+    INDETERMINATE=true
+  fi
+fi
+
+if [ "$INDETERMINATE" = true ]; then
+  if [ "$ALLOW_NEW_SECRETS" = true ]; then
+    SERVICE_EXISTS=false
+    DESCRIBE_JSON=""
+    echo "WARNING: could not read the existing service; continuing with fresh" >&2
+    echo "secrets because --allow-new-secrets was given." >&2
+  else
+    {
+      echo "Could not determine whether '$SERVICE' already exists in $REGION."
+      echo
+      echo "gcloud said:"
+      sed 's/^/  /' "$DESCRIBE_ERR"
+      echo
+      echo "Refusing to continue. If the service does exist, deploying now would"
+      echo "replace APP_DATA_KEY and make every encrypted column (session names,"
+      echo "vote values, estimates, emails) permanently unreadable. Fix the error"
+      echo "above and re-run, or pass --allow-new-secrets if there is genuinely"
+      echo "nothing to preserve."
+    } >&2
+    exit 1
+  fi
 fi
 
 read_deployed_env() {  # $1 = env var name
