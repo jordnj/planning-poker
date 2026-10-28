@@ -60,14 +60,17 @@ public class WsEventListener {
             return;
         }
         String code = destination.substring("/topic/sessions/".length());
-        if (sessions.findByCode(code).isEmpty()) {
+        var target = sessions.findByCode(code);
+        if (target.isEmpty()) {
             return;
         }
         try {
             SessionSnapshot snapshot = sessionService.snapshotByCode(code);
             broadcaster.snapshotToUser(event.getUser().getName(), snapshot);
         } catch (Exception e) {
-            log.warn("Failed to send snapshot for {}: {}", code, e.getMessage());
+            // identify the session by opaque id, and never echo the failure
+            // message, which could carry session content
+            log.warn("Failed to send snapshot for session id={}", target.get().getId());
         }
     }
 }

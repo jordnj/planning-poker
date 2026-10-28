@@ -7,10 +7,13 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
         String jwtSecret,
+        /** Base64-encoded 32-byte AES key for at-rest column encryption. */
+        String dataKey,
         String baseUrl,
         Session session,
         Token token,
-        RateLimit rateLimit
+        RateLimit rateLimit,
+        Actuator actuator
 ) {
     public record Session(Duration idleTimeout, long cleanupIntervalMs) {
     }
@@ -19,5 +22,9 @@ public record AppProperties(
     }
 
     public record RateLimit(int sessionCreatePerMinute, int joinPerMinute) {
+    }
+
+    /** Operator credential for the non-public actuator endpoints. */
+    public record Actuator(String user, String password) {
     }
 }

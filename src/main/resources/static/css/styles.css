@@ -186,6 +186,30 @@ form button[type="submit"] {
     margin: 0;
 }
 
+.hint {
+    font-size: .78rem;
+    color: var(--muted);
+    margin: .3rem 0 0;
+    line-height: 1.35;
+}
+
+.room-key-box {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    max-width: 22rem;
+}
+
+.room-key-box input {
+    font-family: ui-monospace, monospace;
+    font-size: .8rem;
+}
+
+#join-room-key {
+    font-family: ui-monospace, monospace;
+    font-size: .85rem;
+}
+
 .code-badge {
     font-family: ui-monospace, monospace;
     background: #e8edf7;
@@ -274,6 +298,29 @@ form button[type="submit"] {
 }
 
 /* ---------- cards ---------- */
+/* description of the story being estimated, visible to every participant */
+.story-description {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    margin: .5rem 0 .25rem;
+    padding-left: .75rem;
+    border-left: 3px solid var(--border);
+    color: var(--text);
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.story-desc-preview {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: .8rem;
+    color: var(--muted);
+    overflow-wrap: break-word;
+}
+
 .card-grid {
     display: flex;
     flex-wrap: wrap;
@@ -416,19 +463,20 @@ form button[type="submit"] {
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: .4rem;
 }
 
+/* the title/description claim a full row so controls never squeeze them out
+   of the narrow queue column */
 .story-main {
-    flex: 1;
+    flex: 1 1 100%;
     min-width: 0;
 }
 
 .story-title {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
 }
 
 .story-badge {
@@ -454,6 +502,7 @@ form button[type="submit"] {
 .story-actions {
     display: flex;
     gap: .2rem;
+    margin-left: auto;
 }
 
 .story-actions button {
@@ -461,8 +510,12 @@ form button[type="submit"] {
     padding: .15rem .4rem;
 }
 
-#add-story-form input {
+#add-story-form input, #add-story-form textarea {
     margin-bottom: .5rem;
+}
+
+#add-story-form textarea {
+    resize: vertical;
 }
 
 #import-form textarea {

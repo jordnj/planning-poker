@@ -123,14 +123,19 @@ class SessionFlowIntegrationTest {
         assertThat(snapshot.stories().get(0).status()).isEqualTo(StoryStatus.ESTIMATED);
         assertThat(snapshot.stories().get(0).finalEstimate()).isEqualTo("6");
 
-        // export (FR-28), facilitator only
-        assertThatThrownBy(() -> exportService.exportCsv(code, ana))
+        // export bundle (FR-28), facilitator only; the browser renders the file
+        assertThatThrownBy(() -> exportService.export(code, ana))
                 .isInstanceOf(ApiException.class);
-        String csv = exportService.exportCsv(code, facilitator);
-        assertThat(csv).contains("Login page").contains("Ana").contains("6");
-        Map<String, Object> json = exportService.exportJson(code, facilitator);
-        assertThat(json.get("sessionCode")).isEqualTo(code);
-        assertThat((List<?>) json.get("stories")).hasSize(1);
+        ExportBundle bundle = exportService.export(code, facilitator);
+        assertThat(bundle.sessionCode()).isEqualTo(code);
+        assertThat(bundle.stories()).hasSize(1);
+        ExportStory exported = bundle.stories().get(0);
+        assertThat(exported.title()).isEqualTo("Login page");
+        assertThat(exported.finalEstimate()).isEqualTo("6");
+        // only revealed rounds are exported, and their votes carry values
+        assertThat(exported.rounds()).isNotEmpty();
+        assertThat(exported.rounds().get(exported.rounds().size() - 1).votes())
+                .extracting(ExportVote::displayName).contains("Ana");
     }
 
     @Test
@@ -214,11 +219,71 @@ class SessionFlowIntegrationTest {
     }
 
     @Test
+    void storyDescriptionIsVisibleToAllParticipantsWhileVoting() {
+        CreateSessionResponse created = createSession(false, true);
+        String code = created.session().code();
+        AuthPrincipal facilitator = principal(created.participant().id(), code);
+        JoinResponse voterJoin = sessionService.join(code, new JoinRequest("Ana", "VOTER"), null);
+        JoinResponse observerJoin = sessionService.join(code, new JoinRequest("Olly", "OBSERVER"), null);
+        AuthPrincipal ana = principal(voterJoin.participant().id(), code);
+        AuthPrincipal olly = principal(observerJoin.participant().id(), code);
+
+        String description = "As a user I want to log in.\n\nAcceptance criteria:\n- email + password";
+        StoryDto story = storyService.add(code,
+                new StoryRequest("Login page", description, "https://tracker.example/ISSUE-1"), facilitator);
+        assertThat(story.description()).isEqualTo(description);
+
+        votingService.selectStory(code, story.id(), facilitator);
+
+        // the active story carries the description for voters and observers alike,
+        // while the round is still open and votes are hidden
+        for (AuthPrincipal member : List.of(facilitator, ana, olly)) {
+            SessionSnapshot snapshot = sessionService.getSnapshot(code, member);
+            assertThat(snapshot.activeStory().description()).isEqualTo(description);
+            assertThat(snapshot.activeStory().referenceUrl()).isEqualTo("https://tracker.example/ISSUE-1");
+            assertThat(snapshot.activeRound().state()).isEqualTo(RoundState.OPEN);
+            assertThat(snapshot.activeRound().votes()).isNull();
+            assertThat(snapshot.stories().get(0).description()).isEqualTo(description);
+        }
+
+        // the facilitator can add or revise a description on an existing story,
+        // and members see the revision on the story already being voted on
+        String revised = description + "\n- remember me";
+        storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, revised, null, null), facilitator);
+        assertThat(sessionService.getSnapshot(code, ana).activeStory().description()).isEqualTo(revised);
+
+        // a voter may not edit story text (SEC-3)
+        assertThatThrownBy(() -> storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, "hacked", null, null), ana))
+                .isInstanceOf(ApiException.class).hasMessageContaining("facilitator");
+
+        // clearing the description is possible, and the title survives untouched
+        StoryDto cleared = storyService.update(code, story.id(),
+                new StoryUpdateRequest(null, "  ", null, null), facilitator);
+        assertThat(cleared.description()).isNull();
+        assertThat(cleared.title()).isEqualTo("Login page");
+    }
+
+    @Test
+    void storyCanBeCreatedWithoutADescription() {
+        CreateSessionResponse created = createSession(false, true);
+        String code = created.session().code();
+        AuthPrincipal facilitator = principal(created.participant().id(), code);
+        StoryDto story = storyService.add(code, new StoryRequest("No details", "", null), facilitator);
+        assertThat(story.description()).isNull();
+        assertThat(story.referenceUrl()).isNull();
+    }
+
+    @Test
     void storyImportCreatesOneStoryPerLine() {
         CreateSessionResponse created = createSession(false, true);
         String code = created.session().code();
         AuthPrincipal facilitator = principal(created.participant().id(), code);
-        List<StoryDto> imported = storyService.importFromText(code, "Story A\n\n  Story B  \nStory C", facilitator);
+        // the browser splits and encrypts the pasted lines; the server stores them as given
+        List<StoryDto> imported = storyService.importEncryptedTitles(
+                code, List.of("Story A", "Story B", "Story C"), facilitator);
         assertThat(imported).extracting(StoryDto::title).containsExactly("Story A", "Story B", "Story C");
+        assertThat(imported).extracting(StoryDto::orderIndex).containsExactly(0, 1, 2);
     }
 }

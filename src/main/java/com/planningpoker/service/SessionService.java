@@ -263,8 +263,9 @@ public class SessionService {
     // ---------- shared authorization helpers (SEC-3) ----------
 
     public Session requireSession(String code) {
+        // the message deliberately omits the code so it cannot leak into logs
         return sessions.findByCode(code)
-                .orElseThrow(() -> ApiException.notFound("Session not found: " + code));
+                .orElseThrow(() -> ApiException.notFound("Session not found"));
     }
 
     public Session requireActiveSession(String code) {

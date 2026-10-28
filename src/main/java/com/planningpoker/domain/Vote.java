@@ -20,7 +20,9 @@ public class Vote {
     @JoinColumn(name = "participant_id")
     private Participant participant;
 
-    @Column(name = "card_value", nullable = false, length = 50)
+    // encrypted at rest: who voted what is the most sensitive data in a round
+    @Convert(converter = com.planningpoker.crypto.EncryptedStringConverter.class)
+    @Column(name = "card_value", nullable = false, columnDefinition = "text")
     private String cardValue;
 
     @Column(name = "submitted_at", nullable = false)

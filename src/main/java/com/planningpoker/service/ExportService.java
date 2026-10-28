@@ -1,7 +1,7 @@
 package com.planningpoker.service;
 
 import com.planningpoker.domain.*;
-import com.planningpoker.dto.Dtos.StatsDto;
+import com.planningpoker.dto.Dtos.*;
 import com.planningpoker.repo.RoundRepository;
 import com.planningpoker.repo.StoryRepository;
 import com.planningpoker.repo.VoteRepository;
@@ -10,13 +10,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Session results export (FR-27, FR-28). Only revealed rounds' votes are
- * exported; hidden (open-round) votes never leave the server (SEC-4).
+ * Assembles session results for export (FR-27, FR-28).
+ *
+ * Only revealed rounds are included; hidden open-round votes never leave the
+ * server (SEC-4). Story titles, descriptions, reference URLs and participant
+ * names pass through as the client-side ciphertext they were stored as — the
+ * browser decrypts them and writes the CSV/JSON file, because this service has
+ * no key for those fields.
  */
 @Service
 public class ExportService {
@@ -38,96 +41,43 @@ public class ExportService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> exportJson(String code, AuthPrincipal principal) {
+    public ExportBundle export(String code, AuthPrincipal principal) {
         Session session = sessionService.requireSession(code);
         sessionService.requireFacilitator(session, principal);
 
-        Map<String, Object> root = new LinkedHashMap<>();
-        root.put("sessionCode", session.getCode());
-        root.put("sessionName", session.getName());
-        root.put("status", session.getStatus().name());
-        root.put("createdAt", session.getCreatedAt());
-        root.put("deck", session.getDeck().getName());
-
-        List<Map<String, Object>> storyList = new ArrayList<>();
+        List<ExportStory> storyList = new ArrayList<>();
         for (Story story : stories.findBySessionIdOrderByOrderIndexAsc(session.getId())) {
-            Map<String, Object> s = new LinkedHashMap<>();
-            s.put("title", story.getTitle());
-            s.put("status", story.getStatus().name());
-            s.put("finalEstimate", story.getFinalEstimate());
-            s.put("referenceUrl", story.getReferenceUrl());
-
-            List<Map<String, Object>> roundList = new ArrayList<>();
+            List<ExportRound> roundList = new ArrayList<>();
             for (Round round : rounds.findByStoryIdOrderByCreatedAtAsc(story.getId())) {
                 if (round.getState() != RoundState.REVEALED) {
                     continue;
                 }
-                Map<String, Object> r = new LinkedHashMap<>();
-                r.put("revealedAt", round.getRevealedAt());
                 List<Vote> roundVotes = votes.findByRoundId(round.getId());
-                List<Map<String, Object>> voteList = new ArrayList<>();
-                for (Vote vote : roundVotes) {
-                    Map<String, Object> v = new LinkedHashMap<>();
-                    v.put("participant", vote.getParticipant().getDisplayName());
-                    v.put("cardValue", vote.getCardValue());
-                    v.put("submittedAt", vote.getSubmittedAt());
-                    voteList.add(v);
-                }
-                r.put("votes", voteList);
-                StatsDto stats = statisticsService.compute(roundVotes.stream().map(Vote::getCardValue).toList());
-                r.put("statistics", stats);
-                roundList.add(r);
+                List<ExportVote> voteList = roundVotes.stream()
+                        .map(v -> new ExportVote(
+                                v.getParticipant().getDisplayName(),
+                                v.getCardValue(),
+                                v.getSubmittedAt()))
+                        .toList();
+                StatsDto stats = statisticsService.compute(
+                        roundVotes.stream().map(Vote::getCardValue).toList());
+                roundList.add(new ExportRound(round.getRevealedAt(), voteList, stats));
             }
-            s.put("rounds", roundList);
-            storyList.add(s);
+            storyList.add(new ExportStory(
+                    story.getTitle(),
+                    story.getDescription(),
+                    story.getReferenceUrl(),
+                    story.getStatus(),
+                    story.getFinalEstimate(),
+                    roundList));
         }
-        root.put("stories", storyList);
-        return root;
-    }
 
-    @Transactional(readOnly = true)
-    public String exportCsv(String code, AuthPrincipal principal) {
-        Session session = sessionService.requireSession(code);
-        sessionService.requireFacilitator(session, principal);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("story_title,story_status,final_estimate,revealed_at,participant,card_value,submitted_at\n");
-        for (Story story : stories.findBySessionIdOrderByOrderIndexAsc(session.getId())) {
-            boolean anyRow = false;
-            for (Round round : rounds.findByStoryIdOrderByCreatedAtAsc(story.getId())) {
-                if (round.getState() != RoundState.REVEALED) {
-                    continue;
-                }
-                for (Vote vote : votes.findByRoundId(round.getId())) {
-                    appendRow(sb, story, round, vote);
-                    anyRow = true;
-                }
-            }
-            if (!anyRow) {
-                appendRow(sb, story, null, null);
-            }
-        }
-        return sb.toString();
-    }
-
-    private void appendRow(StringBuilder sb, Story story, Round round, Vote vote) {
-        sb.append(csv(story.getTitle())).append(',')
-                .append(story.getStatus().name()).append(',')
-                .append(csv(story.getFinalEstimate())).append(',')
-                .append(round == null || round.getRevealedAt() == null ? "" : round.getRevealedAt()).append(',')
-                .append(vote == null ? "" : csv(vote.getParticipant().getDisplayName())).append(',')
-                .append(vote == null ? "" : csv(vote.getCardValue())).append(',')
-                .append(vote == null ? "" : vote.getSubmittedAt())
-                .append('\n');
-    }
-
-    private String csv(String value) {
-        if (value == null) {
-            return "";
-        }
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
-            return '"' + value.replace("\"", "\"\"") + '"';
-        }
-        return value;
+        return new ExportBundle(
+                session.getCode(),
+                session.getName(),
+                session.getStatus(),
+                session.getCreatedAt(),
+                session.getDeck().getName(),
+                storyList);
     }
 }

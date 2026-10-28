@@ -2,6 +2,7 @@ package com.planningpoker.dto;
 
 import com.planningpoker.domain.*;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
@@ -9,8 +10,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Request/response records for the REST API and STOMP payloads. */
+/**
+ * Request/response records for the REST API and STOMP payloads.
+ *
+ * Fields carrying client-encrypted values (story title/description/reference
+ * URL, participant display names) are bounded by CIPHERTEXT size rather than
+ * by their plaintext meaning — the server cannot read them, so it can only
+ * cap how much it is asked to store. AES-GCM adds 28 bytes and base64
+ * inflates by 4/3, so each bound is roughly 1.4x the plaintext byte ceiling
+ * with headroom. Plaintext limits are enforced in the browser by the matching
+ * maxlength attributes; see docs/PRIVACY.md for what that trade buys.
+ */
 public final class Dtos {
+
+    /** Bounds for client-encrypted fields, derived from plaintext ceilings. */
+    private static final int ENC_NAME_MAX = 1_000;        // 50 chars
+    private static final int ENC_TITLE_MAX = 4_000;       // 255 chars
+    private static final int ENC_URL_MAX = 4_000;         // 500 chars
+    private static final int ENC_DESCRIPTION_MAX = 60_000; // 10,000 chars
 
     private Dtos() {
     }
@@ -18,8 +35,10 @@ public final class Dtos {
     // ---------- requests ----------
 
     public record CreateSessionRequest(
+            // plaintext in transit, encrypted at rest by the server
             @NotBlank @Size(max = 100) String name,
-            @NotBlank @Size(max = 50) String facilitatorName,
+            // client-encrypted
+            @NotBlank @Size(max = ENC_NAME_MAX) String facilitatorName,
             UUID deckId,
             List<@NotBlank @Size(max = 50) String> customDeckValues,
             @Size(max = 100) String customDeckName,
@@ -30,27 +49,36 @@ public final class Dtos {
     }
 
     public record JoinRequest(
-            @NotBlank @Size(max = 50) String displayName,
+            // client-encrypted
+            @NotBlank @Size(max = ENC_NAME_MAX) String displayName,
             String role // VOTER (default) or OBSERVER
     ) {
     }
 
+    /** Story text fields are client-encrypted and opaque to the server. */
     public record StoryRequest(
-            @NotBlank @Size(max = 255) String title,
-            @Size(max = 10000) String description,
-            @Size(max = 500) String referenceUrl
+            @NotBlank @Size(max = ENC_TITLE_MAX) String title,
+            @Size(max = ENC_DESCRIPTION_MAX) String description,
+            @Size(max = ENC_URL_MAX) String referenceUrl
     ) {
     }
 
     public record StoryUpdateRequest(
-            @Size(max = 255) String title,
-            @Size(max = 10000) String description,
-            @Size(max = 500) String referenceUrl,
+            @Size(max = ENC_TITLE_MAX) String title,
+            @Size(max = ENC_DESCRIPTION_MAX) String description,
+            @Size(max = ENC_URL_MAX) String referenceUrl,
             Integer orderIndex
     ) {
     }
 
-    public record ImportStoriesRequest(@NotBlank @Size(max = 100000) String text) {
+    /**
+     * Paste-import: the browser splits the pasted text into lines and encrypts
+     * each one, so the server receives a list of opaque titles rather than a
+     * blob of readable text.
+     */
+    public record ImportStoriesRequest(
+            @NotEmpty @Size(max = 500) List<@NotBlank @Size(max = ENC_TITLE_MAX) String> titles
+    ) {
     }
 
     public record EstimateRequest(@NotBlank @Size(max = 50) String value) {
@@ -61,7 +89,7 @@ public final class Dtos {
 
     public record CreateDeckRequest(
             @NotBlank @Size(max = 100) String name,
-            @jakarta.validation.constraints.NotEmpty List<@NotBlank @Size(max = 50) String> values
+            @NotEmpty List<@NotBlank @Size(max = 50) String> values
     ) {
     }
 
@@ -170,6 +198,41 @@ public final class Dtos {
             ParticipantDto participant,
             String token
     ) {
+    }
+
+    // ---------- export ----------
+
+    /**
+     * Raw material for an export. The server cannot render CSV or JSON with
+     * readable story titles and participant names, because it holds no key for
+     * them — those fields ship as ciphertext and the browser decrypts and
+     * formats the file. Card values and the session name are server-encrypted
+     * at rest, so they appear here in the clear.
+     */
+    public record ExportBundle(
+            String sessionCode,
+            String sessionName,
+            SessionStatus status,
+            Instant createdAt,
+            String deckName,
+            List<ExportStory> stories
+    ) {
+    }
+
+    public record ExportStory(
+            String title,             // ciphertext
+            String description,       // ciphertext
+            String referenceUrl,      // ciphertext
+            StoryStatus status,
+            String finalEstimate,
+            List<ExportRound> rounds
+    ) {
+    }
+
+    public record ExportRound(Instant revealedAt, List<ExportVote> votes, StatsDto statistics) {
+    }
+
+    public record ExportVote(String displayName, String cardValue, Instant submittedAt) {
     }
 
     // ---------- broadcast events (server -> clients) ----------

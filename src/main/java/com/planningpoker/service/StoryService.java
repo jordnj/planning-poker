@@ -43,23 +43,26 @@ public class StoryService {
         return StoryDto.of(story);
     }
 
-    /** FR-12: paste-import, one story title per line. */
+    /**
+     * FR-12: paste-import. The browser has already split the pasted text into
+     * one title per line and encrypted each, so this only stores opaque values
+     * — it cannot inspect, trim or truncate them by meaning.
+     */
     @Transactional
-    public List<StoryDto> importFromText(String code, String text, AuthPrincipal principal) {
+    public List<StoryDto> importEncryptedTitles(String code, List<String> titles, AuthPrincipal principal) {
         Session session = sessionService.requireActiveSession(code);
         sessionService.requireFacilitator(session, principal);
         List<StoryDto> created = new ArrayList<>();
-        for (String line : text.split("\\R")) {
-            String title = line.trim();
-            if (title.isEmpty()) {
+        for (String title : titles) {
+            if (title == null || title.isBlank()) {
                 continue;
             }
-            Story story = newStory(session, title.length() > 255 ? title.substring(0, 255) : title, null, null);
+            Story story = newStory(session, title, null, null);
             stories.save(story);
             created.add(StoryDto.of(story));
         }
         if (created.isEmpty()) {
-            throw ApiException.badRequest("EMPTY_IMPORT", "No story titles found in the pasted text");
+            throw ApiException.badRequest("EMPTY_IMPORT", "No story titles were supplied");
         }
         session.touch();
         broadcastStories(session);
@@ -72,13 +75,13 @@ public class StoryService {
         sessionService.requireFacilitator(session, principal);
         Story story = requireStory(session, storyId);
         if (req.title() != null && !req.title().isBlank()) {
-            story.setTitle(req.title().trim());
+            story.setTitle(req.title());
         }
         if (req.description() != null) {
-            story.setDescription(req.description().isBlank() ? null : req.description());
+            story.setDescription(blankToNull(req.description()));
         }
         if (req.referenceUrl() != null) {
-            story.setReferenceUrl(req.referenceUrl().isBlank() ? null : req.referenceUrl().trim());
+            story.setReferenceUrl(blankToNull(req.referenceUrl()));
         }
         if (req.orderIndex() != null) {
             reorder(session, story, req.orderIndex());
@@ -101,20 +104,46 @@ public class StoryService {
             rounds.delete(round);
         });
         stories.delete(story);
+        // close the gap the deletion leaves, otherwise the next added story
+        // reuses an index that is still in use and the queue order goes
+        // ambiguous, breaking the reorder controls
+        compactOrderIndices(session, story.getId());
         session.touch();
         broadcastStories(session);
     }
 
     // ---------- internals ----------
 
+    // ciphertext is stored verbatim; only emptiness is meaningful to the server
     private Story newStory(Session session, String title, String description, String referenceUrl) {
         Story story = new Story();
         story.setSession(session);
-        story.setTitle(title.trim());
-        story.setDescription(description == null || description.isBlank() ? null : description);
-        story.setReferenceUrl(referenceUrl == null || referenceUrl.isBlank() ? null : referenceUrl.trim());
-        story.setOrderIndex(stories.countBySessionId(session.getId()));
+        story.setTitle(title);
+        story.setDescription(blankToNull(description));
+        story.setReferenceUrl(blankToNull(referenceUrl));
+        story.setOrderIndex(nextOrderIndex(session));
         return story;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    /** One past the highest index in use, so gaps never cause a collision. */
+    private int nextOrderIndex(Session session) {
+        return stories.findBySessionIdOrderByOrderIndexAsc(session.getId()).stream()
+                .mapToInt(Story::getOrderIndex)
+                .max()
+                .orElse(-1) + 1;
+    }
+
+    private void compactOrderIndices(Session session, UUID removedStoryId) {
+        List<Story> remaining = stories.findBySessionIdOrderByOrderIndexAsc(session.getId()).stream()
+                .filter(s -> !s.getId().equals(removedStoryId))
+                .toList();
+        for (int i = 0; i < remaining.size(); i++) {
+            remaining.get(i).setOrderIndex(i);
+        }
     }
 
     private void reorder(Session session, Story story, int newIndex) {

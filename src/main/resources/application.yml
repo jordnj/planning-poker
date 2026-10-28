@@ -10,18 +10,39 @@ spring:
     hibernate:
       ddl-auto: none
     open-in-view: false
+    # never echo statements or bound parameters: parameters carry decrypted
+    # session names, vote values and ciphertext blobs
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
   flyway:
     enabled: true
     locations: classpath:db/migration
 
 server:
-  port: 8080
+  # Cloud Run and most PaaS inject the port to listen on
+  port: ${PORT:8080}
+  tomcat:
+    accesslog:
+      # request paths embed the session code, which is the capability to join a
+      # session — keep them out of access logs entirely
+      enabled: false
+
+logging:
+  level:
+    # belt and braces against SQL/parameter logging being switched on elsewhere
+    org.hibernate.SQL: "off"
+    org.hibernate.orm.jdbc.bind: "off"
+    org.hibernate.type.descriptor.sql: "off"
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        # prometheus is omitted: no micrometer-registry-prometheus on the
+        # classpath, so listing it only advertises an endpoint that 404s
+        include: health,info,metrics
   endpoint:
     health:
       probes:
@@ -30,6 +51,10 @@ management:
 app:
   # Override in production via APP_JWT_SECRET (>= 32 bytes)
   jwt-secret: ${APP_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+  # Base64 of exactly 32 random bytes, from a secret manager in production.
+  # Rotating this makes existing encrypted columns unreadable — re-encrypt first.
+  # The dev default exists only so `bootRun` works out of the box.
+  data-key: ${APP_DATA_KEY:ZGV2LW9ubHktZGF0YS1rZXktZG8tbm90LXVzZSEhISE=}
   # Base URL used to build shareable join links; falls back to request origin when empty
   base-url: ${APP_BASE_URL:}
   session:
@@ -41,6 +66,12 @@ app:
   rate-limit:
     session-create-per-minute: 20
     join-per-minute: 60
+  actuator:
+    # /actuator/metrics requires these credentials; with no password set, no
+    # account exists and the endpoint is closed to everyone. health and info
+    # stay public for platform probes.
+    user: ${APP_ACTUATOR_USER:actuator}
+    password: ${APP_ACTUATOR_PASSWORD:}
 
 ---
 spring:
