@@ -94,19 +94,35 @@ absent), so the first-deploy path produces no stderr at all. It also relaxes
 the preference around every gcloud call, including the deploy itself, whose
 Cloud Build progress goes to stderr for minutes.
 
-### Deploying from Windows: the executable bit
+### Deploying from Windows
 
 `gcloud run deploy --source .` zips the working directory, and a Windows
-filesystem cannot represent the Unix executable bit. `gradlew` therefore
-arrives in the build as mode 644 even though git records it as 100755, and the
-build dies with
+checkout differs from a Linux one in two ways that each break the Gradle
+wrapper. Both are handled, but it is worth knowing the signatures, because
+the second hides behind the first:
 
-    /bin/sh: 1: ./gradlew: Permission denied
-    ... returned a non-zero code: 126
+| symptom | exit | cause |
+|---|---|---|
+| `./gradlew: Permission denied` | 126 | Windows cannot represent the Unix executable bit, so gradlew arrives mode 644 although git records 100755 |
+| `./gradlew: not found` | 127 | CRLF line endings make the shebang `#!/bin/sh\r`, so the kernel looks for an interpreter named `sh\r` — the file is present, its interpreter is not |
 
-The Dockerfile runs `chmod +x ./gradlew` before using it, so it does not
-depend on the source's permission bits. Anything else added to the build that
-must be executable needs the same treatment.
+The Dockerfile therefore runs `sed -i 's/\r$//' ./gradlew && chmod +x ./gradlew`
+before invoking it, so the build does not depend on how the archive was
+produced. Anything else added to the build that must be executable needs the
+same treatment.
+
+`.gitattributes` stops new clones from producing CRLF in the first place
+(`* text=auto eol=lf`, with `*.bat`/`*.cmd` kept CRLF for cmd.exe). A clone
+made before it was added still has CRLF in its working tree; the build copes
+regardless, but to clean it up:
+
+```powershell
+git rm --cached -r .
+git reset --hard
+```
+
+The same CRLF problem breaks `deploy.sh` under WSL, with
+`$'\r': command not found`.
 
 ### First deploy fails on build permissions
 
