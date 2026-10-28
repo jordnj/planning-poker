@@ -94,6 +94,20 @@ absent), so the first-deploy path produces no stderr at all. It also relaxes
 the preference around every gcloud call, including the deploy itself, whose
 Cloud Build progress goes to stderr for minutes.
 
+### Deploying from Windows: the executable bit
+
+`gcloud run deploy --source .` zips the working directory, and a Windows
+filesystem cannot represent the Unix executable bit. `gradlew` therefore
+arrives in the build as mode 644 even though git records it as 100755, and the
+build dies with
+
+    /bin/sh: 1: ./gradlew: Permission denied
+    ... returned a non-zero code: 126
+
+The Dockerfile runs `chmod +x ./gradlew` before using it, so it does not
+depend on the source's permission bits. Anything else added to the build that
+must be executable needs the same treatment.
+
 ### First deploy fails on build permissions
 
 A source deploy uploads the code to a Cloud Storage bucket and has Cloud Build
